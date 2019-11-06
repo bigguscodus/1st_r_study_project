@@ -199,7 +199,7 @@ ui_2 <- fluidPage(sidebarLayout(
 )
 server_2 <- function(input,output){
   output$plot_2 <- renderPlot({
-    data = subset(df, rings>=input$rings[1] & rings<=input$rings[2] & sex %in% c('male','female','juvenil'))
+    data = subset(df, rings>=input$rings[1] & rings<=input$rings[2] & sex %in% c('male','female','juvenile'))
     p_2 <- ggplot(data, aes_string(x='sex', y=input$y_axis_2))+geom_boxplot()+theme_bw(base_size = 14)+ggtitle(paste('Boxplot for ',  input$y_axis_2, ' depending on sex of the clam '))
     p_2+geom_point(col='red', alpha=0.2, position = 'jitter')
     })
