@@ -1,0 +1,230 @@
+---
+title: "Улиточки"
+author: "Штирлиц,близкий к провалу"
+date: '2019г'
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: 4
+    toc_float: no
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Прогрузка данных
+
+Привет! С Ярика твоего трешечка пива:) По поводу функции идея неозднозначная (импорт данных исскуство и каждый раз надо подбирать свой ключ), но если очень надо, то она в чанке ниже. Я надеюсь объемы исследований у вас будут только рости, так что напишу ее сразу в data.table, как дойдете до bigdata, пиши, сделаю в bigmatrix или вообще raw чанками. Функция принимает на вход путь до файлов с данными, паттерн для поиска, лист с типами колонок, вектор имен колонок.
+```{r, echo=FALSE,message=FALSE,include=FALSE,warning=FALSE}
+require(dplyr)
+require(data.table)
+require(DescTools)
+require(rcompanion)
+require(psych)
+require(ggplot2)
+require(lsr)
+require(purrr)
+require(coin)
+```
+```{r, include=T,message=FALSE,warning=FALSE}
+import_them_all <- function(path,pattern, col_classes, col_names){
+  df<- list.files(path =path, pattern = pattern, full.names = T) %>% 
+    map_df(~fread(.,colClasses = col_classes,col.names = col_names))
+  df
+}
+df <- import_them_all(path = "~/r_project/Data",pattern = "*.csv", col_classes = list(character=1:3, numeric = 4:9), col_names =c('rings','sex','length','diameter','height','whole_weight','shucked_weight','viscera_weight','shell_weight'))
+```
+## Корректировка данных
+Данные лучше сразу давать на анализ согласно концепции [tidy-data](https://vita.had.co.nz/papers/tidy-data.pdf). Также хотелось бы иметь файл с метаданными (единицы измерений и т.п.) Но не переживай, там не много ошибок и я все исправил. Для более-менее серьезной работы я использую data.table, но R дает много вариантов, все зависит от твоих предпочтений и сложности ошибок в данных. У тебя ошибки в 3 колонках. Что с ними не так можно посмотреть функцией, **as_numeric_version()**. Ошибок не много и они не искажают смысл данных, так что быстрее всего исправить точечно, по ссылке и с использованием ключа.
+```{r, include=F,message=FALSE,warning=FALSE}
+df <- as.data.table(df)
+df[, key_df:=1:4177]
+setkey(df,key_df)
+df[rings=='nine']
+df[3372,rings:='9']
+df[sex=='three']
+df[618,sex:='3']
+df[sex=='one']
+df[1374,sex:='1']
+df[sex=='male']
+df[1399, sex:= '1']
+df[length=="No data! I forgot to mesure it!("]
+df[3103, length:=NA]
+setkey(df,NULL)
+df[,key_df:=NULL]
+df[,length:=as.numeric(length)]
+df[,rings:=as.numeric(rings)]
+df[,sex:=factor(sex, labels = c('male','female','juvenile'))]
+```
+
+## Среднее значение длины для моллюсков разного пола
+```{r, include=T,echo=FALSE}
+table_1 <- df[,.(mean=mean(length,na.rm = T),sd=sd(length,na.rm = T)),by=sex][1:3]
+```
+```{r,echo=FALSE}
+knitr::kable(table_1)
+```
+
+## 92% квантиль
+Чисто научный интерес, почему имено 92%? Но, если уж так так надо,то 92% наблюдений по Length в данной выборке не превосходят `r as.vector(quantile(df$length,0.92,na.rm = T))`
+
+```{r,echo=FALSE, warning=FALSE}
+quan <- as.vector(quantile(df$length,0.92,na.rm = T))
+ggplot(df,aes(x= length))+geom_density(color='#fdbb84')+geom_vline(xintercept = quan,linetype='dashed',color='#e34a33')+
+  scale_x_continuous(name = 'Length',breaks = c(0.2,0.4,0.6,0.67,0.8))+geom_text(x=0.5,y=1, label = '92% of observations', color='#e34a33')+
+  ggtitle('0.92 quantile for Length')+theme_bw(base_size = 14)
+```
+
+## Стандартизация переменной Length
+Как ты и просил, я добавил колонку с данными по переменной Length после Z-трансформации
+```{r,include=T}
+df[,length_z_scores:=(length-mean(length,na.rm = T))/sd(length,na.rm = T)]
+```
+
+## Отличие моллюсков с 5 и 15 кольцами
+
+```{r,include=TRUE,echo=FALSE,warning=FALSE}
+independence_test(diameter~rings,data = df[rings==5 | rings==15])
+```
+С вероятностью 2.2e-16 мы можем получить  такое или большое значение Z статистики, при справедливости 0 гипотизы. Что дает статистическое основание отвергнуть нулевую гипотизу о равенстве длинн моллюсков с 5 и 15 кольцами и принять альтернативную гипотизу о различии длинн моллюсков с 5 и 15 кольцами.
+
+```{r,echo=FALSE,warning=FALSE}
+temp <- groupwiseMedian(diameter~rings,data = df[rings==5 | rings==15])
+boxlabels <- c('Clam with 5 rings','Clam with 15 rings')
+dk <- data.frame(y=length(boxlabels):1, median=c(temp$Median[2],temp$Median[1]), low = c(temp$Bca.lower[2],temp$Bca.lower[1]),high=c(temp$Bca.upper[2],temp$Bca.upper[1]))
+ggplot(dk, aes(x = median, y = boxlabels)) +
+  geom_errorbarh(aes(xmax = high, xmin = low), size = .5, height = 
+                   .2, color = "#fdbb84") +
+  geom_point(size = 3.5, color = "#e34a33") +
+  theme_bw(base_size = 14)+
+  scale_x_continuous(breaks = c(0.2,0.3,0.4,0.5),limits = c(0.2,0.5))+
+  ylab("") +
+  xlab("Diameter")+
+  ggtitle('95% confidence intervals for medians of Diameter')
+
+```
+
+## Взаимосвязь диаметра и общего веса моллюска
+Для начала построим разведовательный график
+```{r,echo=FALSE}
+ggplot(df,aes(x=whole_weight,y=diameter))+geom_point()+ggtitle('Разведовательный график')+geom_smooth()
+```
+
+Связь очевидно есть, как и очевиден нелинейный характер. Но кажется простая трансформация Тьюки, а именно взятие 
+квадратного корня исправит ситуацию
+
+```{r,echo=FALSE}
+ggplot(df,aes(x=whole_weight^(0.5),y=diameter))+geom_point()+ggtitle('Разведовательный график')+geom_smooth()
+```
+
+Как и ожидалось, связь стала практически линейная. Так что можно попробовать построить простую регрессионную модель
+
+```{r, echo=FALSE,warning=F}
+fit_1 <- lm(diameter~I(whole_weight^0.3333),data = df)
+summary(fit_1)
+```
+
+Визуально оценим распределение остатков
+```{r,echo=FALSE,warning=F}
+plot(fit_1)
+```
+
+С небольшими послаблениями. можно считать, что остатки распределены нормально и гомоскедастично. Значение исправленного R квадрата модели = `r summary(fit_1)$adj.r.squared`, поэтому изменения независимой переменной объясняют `r summary(fit_1)$adj.r.squared` изменений в зависимой переменной. Также, единичное увеличение значения кубического корня веса моллюска увеличивает его диаметр на 0.46±0.001.
+
+## Мои предложения
+```{r,echo=F}
+require(ggplot2)
+require(shiny)
+require(data.table)
+ui <- fluidPage(sidebarLayout(
+  sidebarPanel(sliderInput(inputId='rings',
+                           label='Количество колец',
+                           min = min(df$rings),
+                           max = max(df$rings),
+                           value = c(4,18)),
+               selectInput(inputId = 'sex', 
+                           label = 'Пол моллюска',
+                           choices = levels(df$sex),
+                           multiple = T,
+                           selected = 'juvenile'),
+               selectInput(inputId = 'x_axis',
+                           label = 'Значение по оси х',
+                           choices =names(df),
+                           selected = 'length'),
+               selectInput(inputId = 'y_axis',
+                           label = 'Значение по оси y',
+                           choices =names(df),
+                           selected = 'height'),
+               checkboxInput("fit", "Добавить кривую регрессии", FALSE)
+               ),
+  mainPanel(plotOutput('plot'),
+            tableOutput('table'))
+  )
+)
+server <- function(input,output){
+  output$plot = renderPlot({
+    data = subset(df, rings>=input$rings[1] & rings<=input$rings[2] & sex %in% input$sex)
+    p <- ggplot(data,aes_string(x=input$x_axis,y=input$y_axis))+geom_point(color='#de2d26')+
+      theme_bw(base_size = 14)+ggtitle(paste('Relationship between ', input$y_axis,' and ', input$x_axis))+facet_grid(~sex)
+    if (input$fit){
+      p <- p +geom_smooth(se = F, method = 'lm')
+    }
+    p
+    })
+  output$table = renderTable({data = subset(df, rings>=input$rings[1] & rings<=input$rings[2] & sex %in% input$sex)
+                              describe(data[,c(3:9)],na.rm = T, fast = T)
+},rownames = T)
+}
+shinyApp(ui = ui,server = server)
+```
+
+
+```{r,echo=F}
+ui_2 <- fluidPage(sidebarLayout(
+        sidebarPanel(sliderInput(inputId='rings',
+                                 label='Количество колец',
+                                 min = min(df$rings),
+                                 max = max(df$rings),
+                                 value = c(4,18)),
+                     selectInput(inputId = 'y_axis_2',
+                                 label = 'Значение по оси y',
+                                 choices =names(df),
+                                 selected = 'height')
+  ),
+  mainPanel(plotOutput('plot_2'))
+  )
+)
+server_2 <- function(input,output){
+  output$plot_2 <- renderPlot({
+    data = subset(df, rings>=input$rings[1] & rings<=input$rings[2] & sex %in% c('male','female','juvenil'))
+    p_2 <- ggplot(data, aes_string(x='sex', y=input$y_axis_2))+geom_boxplot()+theme_bw(base_size = 14)+ggtitle(paste('Boxplot for ',  input$y_axis_2, ' depending on sex of the clam '))
+    p_2+geom_point(col='red', alpha=0.2, position = 'jitter')
+    })
+}
+shinyApp(ui = ui_2, server = server_2)
+```
+
+По данным с boxplot графика можно уверенно предположить различия по многим параметрам в зависимости от пола. Проверим наши догадки статистическими метриками
+```{r, echo=F}
+ui_3 <- fluidPage(sidebarLayout(
+        sidebarPanel(selectInput(inputId = 'diff_param',
+                                 label = 'Параметр моллюска',
+                                 choices = names(df)[-2],
+                                 selected = 'length')
+),
+        mainPanel(tableOutput(outputId = 'diff'))
+  )
+)
+server_3 <- function(input,output){
+            output$diff <- renderTable(expr = pairwisePermutationTest(as.formula(paste0(input$diff_param,'~sex')),
+                                                                        data = df,method = 'bonferroni'),digits = 7
+                                           )
+}
+shinyApp(ui=ui_3,server = server_3)
+```
+Предварительный анализ показал, что моллюски статистически значимо (уровень значимости 0.005) отличаются друг от друга по всем параметрам, за исключанием того, что самцы и самки не отличаются по параметру shucked weight. Что дает основания для более глубокого анализа, при выдвижении биологически-обоснованных гипотиз. Все мои данные для соавторства у тебя есть, всегда рад нашему сотрудничеству!)
+P.S. Если что, у меня есть для тебя 4178ой:)
+![pic](https://i.ibb.co/crvYk33/c-SOBf-SXEMOA.jpg)
