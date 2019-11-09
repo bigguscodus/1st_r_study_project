@@ -213,18 +213,23 @@ ui_3 <- fluidPage(sidebarLayout(
         sidebarPanel(selectInput(inputId = 'diff_param',
                                  label = 'Параметр моллюска',
                                  choices = names(df)[-2],
-                                 selected = 'length')
+                                 selected = 'length'),
+                     sliderInput(inputId='rings',
+                                 label='Количество колец',
+                                 min = min(df$rings),
+                                 max = max(df$rings),
+                                 value = c(4,18))
 ),
         mainPanel(tableOutput(outputId = 'diff'))
   )
 )
 server_3 <- function(input,output){
             output$diff <- renderTable(expr = pairwisePermutationTest(as.formula(paste0(input$diff_param,'~sex')),
-                                                                        data = df,method = 'bonferroni'),digits = 7
+                                                                        data =  subset(df, rings>=input$rings[1] & rings<=input$rings[2]),method = 'bonferroni'),digits = 7
                                            )
 }
 shinyApp(ui=ui_3,server = server_3)
 ```
-Предварительный анализ показал, что моллюски статистически значимо (уровень значимости 0.005) отличаются друг от друга по всем параметрам, за исключанием того, что самцы и самки не отличаются по параметру shucked weight. Что дает основания для более глубокого анализа, при выдвижении биологически-обоснованных гипотиз. Все мои данные для соавторства у тебя есть, всегда рад нашему сотрудничеству!)
+Предварительный анализ показал, что моллюски статистически значимо (уровень значимости 0.005) отличаются друг от друга по всем параметрам, за исключанием того, что самцы и самки не отличаются по параметру shucked weight (для полного датасета). Что дает основания для более глубокого анализа, при выдвижении биологически-обоснованных гипотиз. Все мои данные для соавторства у тебя есть, всегда рад нашему сотрудничеству!)
 P.S. Если что, у меня есть для тебя 4178ой:)
 ![pic](https://i.ibb.co/crvYk33/c-SOBf-SXEMOA.jpg)
